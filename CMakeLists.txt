@@ -28,14 +28,15 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
 
 find_package(ament_cmake REQUIRED)
+find_package(rclcpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
-find_package(rclcpp REQUIRED)
 find_package(pcl_ros REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(visualization_msgs REQUIRED)
+find_package(livox_ros_driver REQUIRED)
 
 include_directories(
   include
@@ -45,10 +46,12 @@ add_executable(pointlio_mapping src/laserMapping.cpp include/ikd-Tree/ikd_Tree.c
 ament_target_dependencies(pointlio_mapping
   rclcpp
   geometry_msgs
-  pcl_ros
   nav_msgs
-  visualization_msgs
+  sensor_msgs
+  pcl_ros
   tf2_ros
+  visualization_msgs
+  livox_ros_driver
 )
 target_link_libraries(pointlio_mapping Eigen3::Eigen)
 

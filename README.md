@@ -73,6 +73,13 @@ Following the official [Eigen installation](eigen.tuxfamily.org/index.php?title=
 sudo apt-get install libeigen3-dev
 ```
 
+## **3.3 livox_ros_driver**
+Follow [livox_ros_driver Installation](https://github.com/norlab-ulaval/livox_ros_driver2).
+
+*Remarks:*
+- Since the Point-LIO supports Livox serials LiDAR, so the **livox_ros_driver** must be installed and **sourced** before run any Point-LIO luanch file.
+- How to source? The easiest way is add the line ``` source ros2_ws/install/setup.bash ``` to the end of file ``` ~/.bashrc ```.
+
 ## 4. Build
 Clone the repository and colcon build:
 
@@ -83,12 +90,37 @@ Clone the repository and colcon build:
     colcon build
     source install/setup.bash
 ```
+- Remember to source the livox_ros_driver before build (follow 3.3 **livox_ros_driver**)
 - If you want to use a custom build of PCL, add the following line to ~/.bashrc
 ```export PCL_ROOT={CUSTOM_PCL_PATH}```
 
 ## 5. Directly run
 
-### 5.1 For Rslidar
+### 5.1 For Avia
+Connect to your PC to Livox Avia LiDAR by following  [Livox-ros-driver installation](https://github.com/norlab-ulaval/livox_ros_driver2), then
+```
+    cd ~/ros2_ws
+    source install/setup.bash
+    ros2 launch point_lio mapping_avia.launch
+    roslaunch livox_ros_driver livox_lidar_msg.launch
+```
+- For livox serials, Point-LIO only support the data collected by the ``` livox_lidar_msg.launch ``` since only its ``` livox_ros_driver/CustomMsg ``` data structure produces the timestamp of each LiDAR point which is very important for Point-LIO. ``` livox_lidar.launch ``` can not produce it right now.
+
+### 5.2 For Livox serials with external IMU
+
+mapping_avia.launch theratically supports mid-70, mid-40 or other livox serial LiDAR, but need to setup some parameters befor run:
+
+Edit ``` config/avia.yaml ``` to set the below parameters:
+
+1. LiDAR point cloud topic name: ``` lid_topic ```
+2. IMU topic name: ``` imu_topic ```
+3. Translational extrinsic: ``` extrinsic_T ```
+4. Rotational extrinsic: ``` extrinsic_R ``` (only support rotation matrix)
+- The extrinsic parameters in Point-LIO is defined as the LiDAR's pose (position and rotation matrix) in IMU body frame (i.e. the IMU is the base frame). They can be found in the official manual.
+5. Saturation value of IMU's accelerator and gyroscope: ```satu_acc```, ```satu_gyro```
+6. The norm of IMU's acceleration according to unit of acceleration messages: ``` acc_norm ```
+
+### 5.3 For Rslidar
 
 Step A: Setup before run
 

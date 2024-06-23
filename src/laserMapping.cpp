@@ -20,6 +20,7 @@
 #include <tf2_ros/transform_broadcaster.h>
 #include <geometry_msgs/msg/vector3.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
+#include <livox_ros_driver/msg/custom_msg.hpp>
 #include "parameters.h"
 #include "Estimator.h"
 
@@ -279,7 +280,7 @@ void standard_pcl_cbk(const sensor_msgs::msg::PointCloud2& msg)
     {
         if(frame_ct == 0)
         {
-            time_con = last_timestamp_lidar; //rclcpp::Time(msg->header.stamp).seconds();
+            time_con = last_timestamp_lidar; //rclcpp::Time(msg.header.stamp).seconds();
         }
         if(frame_ct < con_frame_num)
         {
@@ -296,6 +297,90 @@ void standard_pcl_cbk(const sensor_msgs::msg::PointCloud2& msg)
             *ptr_con_i = *ptr_con;
             lidar_buffer.push_back(ptr_con_i);
             double time_con_i = time_con;
+            time_buffer.push_back(time_con_i);
+            ptr_con->clear();
+            frame_ct = 0;
+        }
+    }
+    else
+    {
+        lidar_buffer.emplace_back(ptr);
+        time_buffer.emplace_back(rclcpp::Time(msg.header.stamp).seconds());
+    }
+    s_plot11[scan_count] = omp_get_wtime() - preprocess_start_time;
+    mtx_buffer.unlock();
+    sig_buffer.notify_all();
+}
+
+void livox_pcl_cbk(const livox_ros_driver::msg::CustomMsg& msg)
+{
+    mtx_buffer.lock();
+    double preprocess_start_time = omp_get_wtime();
+    scan_count++;
+    if(rclcpp::Time(msg.header.stamp).seconds() < last_timestamp_lidar)
+    {
+        RCLCPP_ERROR(node->get_logger(), "lidar loop back, clear buffer");
+
+        mtx_buffer.unlock();
+        sig_buffer.notify_all();
+        return;
+    }
+
+    last_timestamp_lidar = rclcpp::Time(msg.header.stamp).seconds();
+
+    PointCloudXYZI::Ptr ptr(new PointCloudXYZI());
+    PointCloudXYZI::Ptr ptr_div(new PointCloudXYZI());
+    p_pre->process(msg, ptr);
+    double time_div = rclcpp::Time(msg.header.stamp).seconds();
+    if(cut_frame)
+    {
+        sort(ptr->points.begin(), ptr->points.end(), time_list);
+
+        for(int i = 0; i < ptr->size(); i++)
+        {
+            ptr_div->push_back(ptr->points[i]);
+            if(ptr->points[i].curvature / double(1000) + rclcpp::Time(msg.header.stamp).seconds() - time_div > cut_frame_time_interval)
+            {
+                if(ptr_div->size() < 1)
+                { continue; }
+                PointCloudXYZI::Ptr ptr_div_i(new PointCloudXYZI());
+                // cout << "ptr div num:" << ptr_div->size() << endl;
+                *ptr_div_i = *ptr_div;
+                // cout << "ptr div i num:" << ptr_div_i->size() << endl;
+                lidar_buffer.push_back(ptr_div_i);
+                time_buffer.push_back(time_div);
+                time_div += ptr->points[i].curvature / double(1000);
+                ptr_div->clear();
+            }
+        }
+        if(!ptr_div->empty())
+        {
+            lidar_buffer.push_back(ptr_div);
+            // ptr_div->clear();
+            time_buffer.push_back(time_div);
+        }
+    }
+    else if(con_frame)
+    {
+        if(frame_ct == 0)
+        {
+            time_con = last_timestamp_lidar; //msg.header.stamp.toSec();
+        }
+        if(frame_ct < con_frame_num)
+        {
+            for(int i = 0; i < ptr->size(); i++)
+            {
+                ptr->points[i].curvature += (last_timestamp_lidar - time_con) * 1000;
+                ptr_con->push_back(ptr->points[i]);
+            }
+            frame_ct++;
+        }
+        else
+        {
+            PointCloudXYZI::Ptr ptr_con_i(new PointCloudXYZI());
+            *ptr_con_i = *ptr_con;
+            double time_con_i = time_con;
+            lidar_buffer.push_back(ptr_con_i);
             time_buffer.push_back(time_con_i);
             ptr_con->clear();
             frame_ct = 0;
@@ -740,7 +825,16 @@ int main(int argc, char** argv)
     }
 
     /*** ROS subscribe initialization ***/
-    rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr sub_pcl = node->create_subscription<sensor_msgs::msg::PointCloud2>(lid_topic, 200000, standard_pcl_cbk);
+    rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr sub_pcl;
+    rclcpp::Subscription<livox_ros_driver::msg::CustomMsg>::SharedPtr sub_livox;
+    if(p_pre->lidar_type == AVIA)
+    {
+        sub_livox = node->create_subscription<livox_ros_driver::msg::CustomMsg>(lid_topic, 200000, livox_pcl_cbk);
+    }
+    else
+    {
+        sub_pcl = node->create_subscription<sensor_msgs::msg::PointCloud2>(lid_topic, 200000, standard_pcl_cbk);
+    }
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr sub_imu = node->create_subscription<sensor_msgs::msg::Imu>(imu_topic, 200000, imu_cbk);
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pubLaserCloudFullRes = node->create_publisher<sensor_msgs::msg::PointCloud2>("/cloud_registered", 100000);
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pubLaserCloudFullRes_body = node->create_publisher<sensor_msgs::msg::PointCloud2>("/cloud_registered_body", 100000);
