@@ -23,6 +23,7 @@
 #include <livox_ros_driver/msg/custom_msg.hpp>
 #include "parameters.h"
 #include "Estimator.h"
+#include <tf2_eigen/tf2_eigen.h>
 
 #define MAXN                (720000)
 #define PUBFRAME_PERIOD     (20)
@@ -84,11 +85,39 @@ public:
     {}
 };
 
-void SigHandle(int sig)
+PointCloudXYZI::Ptr pcl_wait_save(new PointCloudXYZI());
+std::vector<std::pair<std::chrono::time_point<std::chrono::steady_clock>, Eigen::Matrix4d>> trajectory;
+
+void saveTrajectory(const std::string& fileName, const std::vector<std::pair<std::chrono::time_point<std::chrono::steady_clock>, Eigen::Matrix4d>>& trajectory)
 {
-    flg_exit = true;
-    RCLCPP_WARN(node->get_logger(), "catch sig %d", sig);
-    sig_buffer.notify_all();
+    std::ofstream trajectoryFile(fileName);
+    trajectoryFile << "stamp,t00,t01,t02,t03,t10,t11,t12,t13,t20,t21,t22,t23,t30,t31,t32,t33" << std::endl;
+    for(unsigned int i = 0; i < trajectory.size(); ++i)
+    {
+        trajectoryFile << trajectory[i].first.time_since_epoch().count() << "," <<
+                          trajectory[i].second(0, 0) << "," << trajectory[i].second(0, 1) << "," << trajectory[i].second(0, 2) << "," << trajectory[i].second(0, 3) << "," <<
+                          trajectory[i].second(1, 0) << "," << trajectory[i].second(1, 1) << "," << trajectory[i].second(1, 2) << "," << trajectory[i].second(1, 3) << "," <<
+                          trajectory[i].second(2, 0) << "," << trajectory[i].second(2, 1) << "," << trajectory[i].second(2, 2) << "," << trajectory[i].second(2, 3) << "," <<
+                          trajectory[i].second(3, 0) << "," << trajectory[i].second(3, 1) << "," << trajectory[i].second(3, 2) << "," << trajectory[i].second(3, 3) << std::endl;
+    }
+    trajectoryFile.close();
+}
+
+void signalHandler(int signal)
+{
+    std::cout << "Exiting with signal " << signal << "..." << std::endl;
+    //--------------------------save map-----------------------------------
+    /* 1. make sure you have enough memories
+    /* 2. noted that pcd save will influence the real-time performences **/
+    if(pcl_wait_save->size() > 0 && pcd_save_en)
+    {
+        saveTrajectory(string(string(ROOT_DIR) + "PCD/trajectory.csv"), trajectory);
+        string file_name = string("scans.pcd");
+        string all_points_dir(string(string(ROOT_DIR) + "PCD/") + file_name);
+        pcl::PCDWriter pcd_writer;
+        pcd_writer.writeBinary(all_points_dir, *pcl_wait_save);
+    }
+    exit(0);
 }
 
 inline void dump_lio_state_to_log(FILE* fp)
@@ -597,7 +626,6 @@ void publish_init_kdtree(rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::Share
 }
 
 PointCloudXYZI::Ptr pcl_wait_pub(new PointCloudXYZI(500000, 1));
-PointCloudXYZI::Ptr pcl_wait_save(new PointCloudXYZI());
 
 void publish_frame_world(rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pubLaserCloudFullRes)
 {
@@ -643,6 +671,12 @@ void publish_frame_world(rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::Share
             laserCloudWorld->points[i].intensity = feats_down_world->points[i].intensity;
         }
 
+        Eigen::Matrix4d pose = Eigen::Matrix4d::Identity();
+        pose.topRightCorner<3, 1>() = Eigen::Vector3d(odomAftMapped.pose.pose.position.x, odomAftMapped.pose.pose.position.y, odomAftMapped.pose.pose.position.z);
+        Eigen::Quaterniond orientationQuaternion;
+        tf2::fromMsg(odomAftMapped.pose.pose.orientation, orientationQuaternion);
+        pose.topLeftCorner<3, 3>() = orientationQuaternion.normalized().toRotationMatrix();
+        trajectory.push_back(std::make_pair(std::chrono::time_point<std::chrono::steady_clock>(std::chrono::nanoseconds((std::uint64_t)(lidar_end_time * 1e9))), pose));
         *pcl_wait_save += *laserCloudWorld;
 
         static int scan_wait_num = 0;
@@ -844,7 +878,8 @@ int main(int argc, char** argv)
     rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr pubPath = node->create_publisher<nav_msgs::msg::Path>("/path", 100000);
     rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr plane_pub = node->create_publisher<visualization_msgs::msg::Marker>("/planner_normal", 1000);
 //------------------------------------------------------------------------------------------------------
-    signal(SIGINT, SigHandle);
+    for(int i = 0; i < 16; ++i)
+        signal(i, signalHandler);
     rclcpp::Rate rate(5000);
     bool status = rclcpp::ok();
     while(status)
@@ -1407,16 +1442,6 @@ int main(int argc, char** argv)
         }
         status = rclcpp::ok();
         rate.sleep();
-    }
-    //--------------------------save map-----------------------------------
-    /* 1. make sure you have enough memories
-    /* 2. noted that pcd save will influence the real-time performences **/
-    if(pcl_wait_save->size() > 0 && pcd_save_en)
-    {
-        string file_name = string("scans.pcd");
-        string all_points_dir(string(string(ROOT_DIR) + "PCD/") + file_name);
-        pcl::PCDWriter pcd_writer;
-        pcd_writer.writeBinary(all_points_dir, *pcl_wait_save);
     }
     fout_out.close();
     fout_imu_pbp.close();

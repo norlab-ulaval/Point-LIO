@@ -21,6 +21,7 @@
   <depend>pcl_ros</depend>
   <depend>visualization_msgs</depend>
   <depend>livox_ros_driver</depend>
+  <depend>tf2_eigen</depend>
 
   <export>
     <build_type>ament_cmake</build_type>

@@ -127,7 +127,7 @@ namespace rslidar_ros
     {
         PCL_ADD_POINT4D;
         float intensity;
-        uint16_t ring;
+        float ring;
         uint32_t t;
         EIGEN_MAKE_ALIGNED_OPERATOR_NEW
     };
@@ -137,7 +137,7 @@ POINT_CLOUD_REGISTER_POINT_STRUCT(rslidar_ros::Point,
                                           (float, y, y)
                                           (float, z, z)
                                           (float, intensity, intensity)
-                                          (std::uint16_t, ring, ring)
+                                          (float, ring, ring)
                                           (std::uint32_t, t, t)
 )
 

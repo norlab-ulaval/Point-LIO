@@ -37,6 +37,7 @@ find_package(tf2_ros REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(livox_ros_driver REQUIRED)
+find_package(tf2_eigen REQUIRED)
 
 include_directories(
   include
@@ -52,6 +53,7 @@ ament_target_dependencies(pointlio_mapping
   tf2_ros
   visualization_msgs
   livox_ros_driver
+  tf2_eigen
 )
 target_link_libraries(pointlio_mapping Eigen3::Eigen)
 
