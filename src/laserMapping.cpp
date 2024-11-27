@@ -85,20 +85,30 @@ public:
     {}
 };
 
-PointCloudXYZI::Ptr pcl_wait_save(new PointCloudXYZI());
-std::vector<std::pair<std::chrono::time_point<std::chrono::steady_clock>, Eigen::Matrix4d>> trajectory;
+typedef struct StampedState
+{
+    std::chrono::time_point<std::chrono::steady_clock> stamp;
+    Eigen::Matrix4d pose;
+    Eigen::Vector3d linearVelocity;
+    Eigen::Vector3d angularVelocity;
+} StampedState;
 
-void saveTrajectory(const std::string& fileName, const std::vector<std::pair<std::chrono::time_point<std::chrono::steady_clock>, Eigen::Matrix4d>>& trajectory)
+PointCloudXYZI::Ptr pcl_wait_save(new PointCloudXYZI());
+std::vector<StampedState> trajectory;
+
+void saveTrajectory(const std::string& fileName, const std::vector<StampedState>& trajectory)
 {
     std::ofstream trajectoryFile(fileName);
-    trajectoryFile << "stamp,t00,t01,t02,t03,t10,t11,t12,t13,t20,t21,t22,t23,t30,t31,t32,t33" << std::endl;
+    trajectoryFile << "stamp,t00,t01,t02,t03,t10,t11,t12,t13,t20,t21,t22,t23,t30,t31,t32,t33,v0,v1,v2,w0,w1,w2" << std::endl;
     for(unsigned int i = 0; i < trajectory.size(); ++i)
     {
-        trajectoryFile << trajectory[i].first.time_since_epoch().count() << "," <<
-                          trajectory[i].second(0, 0) << "," << trajectory[i].second(0, 1) << "," << trajectory[i].second(0, 2) << "," << trajectory[i].second(0, 3) << "," <<
-                          trajectory[i].second(1, 0) << "," << trajectory[i].second(1, 1) << "," << trajectory[i].second(1, 2) << "," << trajectory[i].second(1, 3) << "," <<
-                          trajectory[i].second(2, 0) << "," << trajectory[i].second(2, 1) << "," << trajectory[i].second(2, 2) << "," << trajectory[i].second(2, 3) << "," <<
-                          trajectory[i].second(3, 0) << "," << trajectory[i].second(3, 1) << "," << trajectory[i].second(3, 2) << "," << trajectory[i].second(3, 3) << std::endl;
+        trajectoryFile << trajectory[i].stamp.time_since_epoch().count() << "," <<
+                          trajectory[i].pose(0, 0) << "," << trajectory[i].pose(0, 1) << "," << trajectory[i].pose(0, 2) << "," << trajectory[i].pose(0, 3) << "," <<
+                          trajectory[i].pose(1, 0) << "," << trajectory[i].pose(1, 1) << "," << trajectory[i].pose(1, 2) << "," << trajectory[i].pose(1, 3) << "," <<
+                          trajectory[i].pose(2, 0) << "," << trajectory[i].pose(2, 1) << "," << trajectory[i].pose(2, 2) << "," << trajectory[i].pose(2, 3) << "," <<
+                          trajectory[i].pose(3, 0) << "," << trajectory[i].pose(3, 1) << "," << trajectory[i].pose(3, 2) << "," << trajectory[i].pose(3, 3) << "," <<
+                          trajectory[i].linearVelocity(0) << "," << trajectory[i].linearVelocity(1) << "," << trajectory[i].linearVelocity(2) << "," <<
+                          trajectory[i].angularVelocity(0) << "," << trajectory[i].angularVelocity(1) << "," << trajectory[i].angularVelocity(2) << std::endl << std::flush;
     }
     trajectoryFile.close();
 }
@@ -671,12 +681,6 @@ void publish_frame_world(rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::Share
             laserCloudWorld->points[i].intensity = feats_down_world->points[i].intensity;
         }
 
-        Eigen::Matrix4d pose = Eigen::Matrix4d::Identity();
-        pose.topRightCorner<3, 1>() = Eigen::Vector3d(odomAftMapped.pose.pose.position.x, odomAftMapped.pose.pose.position.y, odomAftMapped.pose.pose.position.z);
-        Eigen::Quaterniond orientationQuaternion;
-        tf2::fromMsg(odomAftMapped.pose.pose.orientation, orientationQuaternion);
-        pose.topLeftCorner<3, 3>() = orientationQuaternion.normalized().toRotationMatrix();
-        trajectory.push_back(std::make_pair(std::chrono::time_point<std::chrono::steady_clock>(std::chrono::nanoseconds((std::uint64_t)(lidar_end_time * 1e9))), pose));
         *pcl_wait_save += *laserCloudWorld;
 
         static int scan_wait_num = 0;
@@ -1187,6 +1191,15 @@ int main(int argc, char** argv)
                     // }
 
                     solve_start = omp_get_wtime();
+
+                    std::chrono::time_point<std::chrono::steady_clock> stamp(std::chrono::nanoseconds((std::uint64_t)(time_current * 1e9)));
+                    Eigen::Matrix4d pose = Eigen::Matrix4d::Identity();
+                    pose.topRightCorner<3, 1>() = Eigen::Vector3d(kf_output.x_.pos(0), kf_output.x_.pos(1), kf_output.x_.pos(2));
+                    Eigen::Quaterniond orientationQuaternion(kf_output.x_.rot);
+                    pose.topLeftCorner<3, 3>() = orientationQuaternion.normalized().toRotationMatrix();
+                    Eigen::Vector3d linearVelocity(kf_output.x_.vel(0), kf_output.x_.vel(1), kf_output.x_.vel(2));
+                    Eigen::Vector3d angularVelocity(kf_output.x_.omg(0), kf_output.x_.omg(1), kf_output.x_.omg(2));
+                    trajectory.push_back({stamp, pose, linearVelocity, angularVelocity});
 
                     if(publish_odometry_without_downsample)
                     {
